@@ -1,0 +1,284 @@
+--- /dev/null	2026-03-19 20:56:54.949954778 +0100
++++ ncbi-blast-2.17.0+-src/c++/include/static_info.h	2026-03-25 20:34:02.589741056 +0100
+@@ -0,0 +1,13 @@
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++extern const char* PROGRESS_PIPE;
++extern const char* PROGRESS_KEY;
++extern int SUBJECT_LENGTH_MIN;
++extern int SUBJECT_LENGTH_MAX;
++extern long long BLAST_COUNTER;
++
++#ifdef __cplusplus
++}
++#endif
+--- /tmp/orig/ncbi-blast-2.17.0+-src/c++/src/algo/blast/blastinput/blast_args.cpp	2025-06-05 15:56:05.000000000 +0200
++++ ncbi-blast-2.17.0+-src/c++/src/algo/blast/blastinput/blast_args.cpp	2026-03-25 20:34:02.589741056 +0100
+@@ -3443,6 +3443,13 @@
+                    CArgDescriptions::eOutputFile, "-");
+     arg_desc.SetConstraint(kArgOutput, new CArgAllowMaximumFileNameLength());
+ 
++    arg_desc.SetCurrentGroup("Custom options");
++    	arg_desc.AddDefaultKey("progress_pipe", "pipe", "progress pipe file path", CArgDescriptions::eString, "");
++    	arg_desc.AddDefaultKey("progress_key", "key", "search identifier used in search progress notifications", CArgDescriptions::eString, "");
++        arg_desc.AddDefaultKey("subject_length_max", "length", "maximal length of subject sequences", CArgDescriptions::eInteger, "-1");
++        arg_desc.AddDefaultKey("subject_length_min", "length", "minimal length of subject sequences", CArgDescriptions::eInteger, "-1");
++    arg_desc.SetCurrentGroup("");
++
+     if (m_GzipEnabled) {
+         arg_desc.AddFlag(kArgOutputGzip, "Output will be compressed");
+     }
+@@ -3674,6 +3681,7 @@
+     retval->SetCurrentGroup("Statistical options");
+     retval->SetCurrentGroup("Search strategy options");
+     retval->SetCurrentGroup("Extension options");
++    retval->SetCurrentGroup("Custom options");
+     retval->SetCurrentGroup("");
+ 
+ 
+--- /tmp/orig/ncbi-blast-2.17.0+-src/c++/src/algo/blast/core/blast_engine.c	2025-04-03 21:37:55.000000000 +0200
++++ ncbi-blast-2.17.0+-src/c++/src/algo/blast/core/blast_engine.c	2026-03-25 22:53:23.714479320 +0100
+@@ -75,6 +75,10 @@
+ #include "blast_gapalign_priv.h"
+ #include "jumper.h"
+ 
++#include "static_info.h"
++#include <unistd.h>
++#include <fcntl.h>
++
+ /** Converts nucleotide coordinates to protein */
+ #define CONV_NUCL2PROT_COORDINATES(length) (length) / CODON_LENGTH
+ 
+@@ -1406,8 +1410,11 @@
+ 
+     db_length = BlastSeqSrcGetTotLen(seq_src);
+ 
++    long long totalSequencesLength = BlastSeqSrcGetTotLen(seq_src);
+     itr = BlastSeqSrcIteratorNewEx(MAX(BlastSeqSrcGetNumSeqs(seq_src)/100,1));
+ 
++	int pipefd = strlen(PROGRESS_PIPE) == 0 ? -1 : open(PROGRESS_PIPE, O_NONBLOCK | O_WRONLY);
++
+     /* iterate over all subject sequences */
+     while ( (seq_arg.oid = BlastSeqSrcIteratorNext(seq_src, itr))
+            != BLAST_SEQSRC_EOF) {
+@@ -1431,6 +1438,23 @@
+            continue;
+        }
+ 
++       if (pipefd != -1) {
++    	   long long sequenceLength = seq_arg.seq->length;
++	       long long newValue = __sync_add_and_fetch(&BLAST_COUNTER, sequenceLength);
++	       long long previousValue = newValue - sequenceLength;
++	       int oldPercent = previousValue * 100LL / totalSequencesLength;
++	       int newPercent = newValue * 100LL / totalSequencesLength;
++	       if (oldPercent != newPercent) {
++	           dprintf(pipefd, "%s#%d\n", PROGRESS_KEY, newPercent);
++	       }
++       }
++
++       if ((SUBJECT_LENGTH_MAX != -1 && seq_arg.seq->length > SUBJECT_LENGTH_MAX)
++               || (SUBJECT_LENGTH_MIN != -1 && seq_arg.seq->length < SUBJECT_LENGTH_MIN)) {
++           BlastSeqSrcReleaseSequence(seq_src, &seq_arg);
++	       continue;
++	   }
++
+        if (db_length == 0) {
+            /* This is not a database search, hence need to recalculate and save
+             the effective search spaces and length adjustments for all
+@@ -1583,6 +1607,8 @@
+       }
+     }
+ 
++    if (pipefd != -1) close(pipefd);
++
+     /* Tell the indexing library that this thread is done with
+        preliminary search.
+     */
+--- /tmp/orig/ncbi-blast-2.17.0+-src/c++/src/corelib/ncbiapp.cpp	2024-07-10 15:26:23.000000000 +0200
++++ ncbi-blast-2.17.0+-src/c++/src/corelib/ncbiapp.cpp	2026-03-25 20:34:02.591741046 +0100
+@@ -50,6 +50,19 @@
+ #include <corelib/request_ctx.hpp>
+ #include "ncbisys.hpp"
+ 
++#include "static_info.h"
++#include <string>
++
++extern "C" {
++const char* PROGRESS_PIPE = "";
++const char* PROGRESS_KEY = "";
++int SUBJECT_LENGTH_MIN = -1;
++int SUBJECT_LENGTH_MAX = -1;
++long long BLAST_COUNTER = 0;
++}
++static std::string g_ProgressPipe;
++static std::string g_ProgressKey;
++
+ #if defined(NCBI_OS_MSWIN)
+ #  include <corelib/ncbi_os_mswin.hpp>
+ #  include <corelib/ncbidll.hpp>
+@@ -308,6 +321,14 @@
+         NCBI_THROW(CAppException, eUnsetArgs,
+                    "Command-line argument description is not found");
+     }
++
++    g_ProgressPipe = m_Args->Exist("progress_pipe") ? (*m_Args)["progress_pipe"].AsString() : "";
++    PROGRESS_PIPE = g_ProgressPipe.c_str();
++    g_ProgressKey = m_Args->Exist("progress_key") ? (*m_Args)["progress_key"].AsString() : "";
++    PROGRESS_KEY = g_ProgressKey.c_str();
++    SUBJECT_LENGTH_MAX = m_Args->Exist("subject_length_max") ? (*m_Args)["subject_length_max"].AsInteger() : -1;
++    SUBJECT_LENGTH_MIN = m_Args->Exist("subject_length_min") ? (*m_Args)["subject_length_min"].AsInteger() : -1;
++    BLAST_COUNTER = 0;
+     return *m_Args;
+ }
+ 
+--- /tmp/orig/ncbi-blast-2.17.0+-src/c++/include/objtools/align_format/format_flags.hpp	2024-08-06 17:09:32.000000000 +0200
++++ ncbi-blast-2.17.0+-src/c++/include/objtools/align_format/format_flags.hpp	2026-03-25 20:34:02.592741041 +0100
+@@ -107,6 +107,7 @@
+     eSubjectEnd,           ///< End of alignment in subject
+     eQuerySeq,             ///< Aligned part of query sequence
+     eSubjectSeq,           ///< Aligned part of subject sequence
++    eMiddleLine,           ///< Middle line of the alignment
+     eEvalue,               ///< Expect value
+     eBitScore,             ///< Bit score
+     eScore,                ///< Raw score
+--- /tmp/orig/ncbi-blast-2.17.0+-src/c++/src/objtools/align_format/format_flags.cpp	2024-08-06 17:09:32.000000000 +0200
++++ ncbi-blast-2.17.0+-src/c++/src/objtools/align_format/format_flags.cpp	2026-03-25 20:34:02.592741041 +0100
+@@ -40,7 +40,7 @@
+     "evalue bitscore";
+ const char* kDfltArgTabularOutputFmtTag("std");
+ 
+-const size_t kNumTabularOutputFormatSpecifiers = 50;
++const size_t kNumTabularOutputFormatSpecifiers = 51;
+ const SFormatSpec sc_FormatSpecifiers[kNumTabularOutputFormatSpecifiers] = {
+     SFormatSpec("qseqid",   
+                 "Query Seq-id",
+@@ -99,6 +99,9 @@
+     SFormatSpec("sseq",
+                 "Aligned part of subject sequence", 
+                 eSubjectSeq),
++	SFormatSpec("midline",
++				"Middle line of alignment",
++				eMiddleLine),
+     SFormatSpec("evalue", 
+                 "Expect value", 
+                 eEvalue),
+--- /tmp/orig/ncbi-blast-2.17.0+-src/c++/include/objtools/align_format/tabular.hpp	2025-06-05 15:56:14.000000000 +0200
++++ ncbi-blast-2.17.0+-src/c++/include/objtools/align_format/tabular.hpp	2026-03-25 20:34:02.592741041 +0100
+@@ -252,6 +252,8 @@
+     void x_PrintQuerySeq(void);
+     /// Print aligned part of subject sequence
+     void x_PrintSubjectSeq(void);
++    /// Print middle line of the alignment
++    void x_PrintMiddleLine(void);
+     /// Print query start
+     void x_PrintQueryStart(void);
+     /// Print query end
+@@ -320,6 +322,7 @@
+     string m_FieldDelimiter;   ///< Delimiter character for fields to print.
+     string m_QuerySeq;       ///< Aligned part of the query sequence
+     string m_SubjectSeq;     ///< Aligned part of the subject sequence
++    string m_MiddleLine;     ///< Middle line of the alignment
+     int m_QueryStart;        ///< Starting offset in query
+     int m_QueryEnd;          ///< Ending offset in query
+     int m_QueryFrame;        ///< query frame
+@@ -394,6 +397,11 @@
+     m_Ostream << m_SubjectSeq;
+ }
+ 
++inline void CBlastTabularInfo::x_PrintMiddleLine(void)
++{
++    m_Ostream << m_MiddleLine;
++}
++
+ inline void CBlastTabularInfo::x_PrintQueryStart(void)
+ {
+     m_Ostream << m_QueryStart;
+--- /tmp/orig/ncbi-blast-2.17.0+-src/c++/src/objtools/align_format/tabular.cpp	2025-06-05 15:56:14.000000000 +0200
++++ ncbi-blast-2.17.0+-src/c++/src/objtools/align_format/tabular.cpp	2026-03-25 20:34:02.593741036 +0100
+@@ -778,7 +778,8 @@
+     if (x_IsFieldRequested(eQuerySeqId) || x_IsFieldRequested(eQueryGi) ||
+         x_IsFieldRequested(eQueryAccession) ||
+         x_IsFieldRequested(eQueryAccessionVersion) ||
+-        x_IsFieldRequested(eQueryCovSeqalign)) {
++        x_IsFieldRequested(eQueryCovSeqalign) ||
++        x_IsFieldRequested(eMiddleLine)) {
+         try {
+             // FIXME: do this only if the query has changed
+             const CBioseq_Handle& query_bh = 
+@@ -831,7 +832,7 @@
+     		 	 	 	 x_IsFieldRequested(eSubjAccessionVersion));
+ 
+     if(setSubjectIds || setSubjectTaxInfo || setSubjectTaxInfoAll || setSubjectTitle ||
+-       x_IsFieldRequested(eSubjectStrand) || setSubjectId)
++       x_IsFieldRequested(eSubjectStrand) || setSubjectId || x_IsFieldRequested(eMiddleLine))
+     {
+         try {
+        		const CBioseq_Handle& subject_bh =
+@@ -905,7 +906,7 @@
+         x_IsFieldRequested(ePositives) || x_IsFieldRequested(eMismatches) || 
+         x_IsFieldRequested(ePercentPositives) || x_IsFieldRequested(ePercentIdentical) ||
+         x_IsFieldRequested(eQueryFrame) || x_IsFieldRequested(eBTOP) ||
+-        x_IsFieldRequested(eSubjectStrand)) {
++        x_IsFieldRequested(eSubjectStrand) || x_IsFieldRequested(eMiddleLine)) {
+ 
+     CRef<CSeq_align> finalAln(0);
+    
+@@ -975,6 +976,7 @@
+         x_IsFieldRequested(ePositives) ||
+         x_IsFieldRequested(ePercentPositives) ||
+         x_IsFieldRequested(eBTOP) ||
++        x_IsFieldRequested(eMiddleLine) ||
+         (x_IsFieldRequested(eNumIdentical) && !kNoFetchSequence) ||
+         (x_IsFieldRequested(eMismatches) && !kNoFetchSequence) ||
+         (x_IsFieldRequested(ePercentIdentical) && !kNoFetchSequence)) {
+@@ -990,11 +992,14 @@
+             x_IsFieldRequested(eBTOP) ||
+             x_IsFieldRequested(eNumIdentical) ||
+             x_IsFieldRequested(eMismatches) ||
+-            x_IsFieldRequested(ePercentIdentical)) {
++            x_IsFieldRequested(ePercentIdentical) ||
++            x_IsFieldRequested(eMiddleLine)) {
+ 
+             string btop_string = "";
+             int num_matches = 0;
+             num_ident = 0;
++            m_MiddleLine = m_QuerySeq;
++            const bool kIsBlastn = (query_is_na && subject_is_na && !kTranslated);
+             // The query and subject sequence strings must be the same size in a correct
+             // alignment, but if alignment extends beyond the end of sequence because of
+             // a bug, one of the sequence strings may be truncated, hence it is 
+@@ -1007,6 +1012,8 @@
+                     ++num_ident;
+                     ++num_positives;
+                     ++num_matches;
++                    if (kIsBlastn)
++                    	m_MiddleLine[i] = '|';
+                 } else {
+                     if(num_matches > 0) {
+                         btop_string +=  NStr::Int8ToString(num_matches);
+@@ -1017,6 +1024,9 @@
+                     if (matrix && !matrix->GetData().empty() &&
+                            (*matrix)(m_QuerySeq[i], m_SubjectSeq[i]) > 0) {
+                         ++num_positives;
++                        m_MiddleLine[i] = kIsBlastn ? ' ' : '+';
++                    } else {
++                    	m_MiddleLine[i] = ' ';
+                     }
+                 }
+             }
+@@ -1449,6 +1459,8 @@
+         x_PrintQuerySeq(); break;
+     case eSubjectSeq:
+         x_PrintSubjectSeq(); break;
++    case eMiddleLine:
++        x_PrintMiddleLine(); break;
+     case eEvalue:
+         x_PrintEvalue(); break;
+     case eBitScore:
+--- /dev/null
++++ ncbi-blast-2.17.0+-src/c++/projects.txt
+@@ -0,0 +1,2 @@
++app/blast
++app/blastdb
