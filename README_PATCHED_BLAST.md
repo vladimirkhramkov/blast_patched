@@ -128,6 +128,17 @@ All source code modifications are captured as standard `diff -u` patch files sto
 
 **Patch stats:** 349 lines, 17.8 KB, 10 hunks total.
 
+#### Patch 3: `ncbi_blast_2.17.0_cdr_patch`
+**Applies:** Unified Antibody/TCR CDR multi-query search engine, distance chaining, native `.patidx` (CDRPAT01) patent resolution in C++, and 32-column compact streaming output.  
+**Depends on:** Applied on top of Patch 1 and Patch 2.
+
+| Component | Files Modified | Description |
+|---|---|---|
+| Core CDR Algorithm | `c++/include/algo/blast/core/cdr_search.h`, `cdr_search.c` | Implements uniform IUPAC patent score matrix, multi-CDR combination tracking, and distance chaining |
+| Options & CLI Args | `blast_options.h`, `blast_args.hpp`, `blastp_args.cpp`, `blastn_args.cpp` | Registers `-cdr_mode`, `-cdr_outfmt`, `-chain_min_ident`, `-cdr_dist12_min/max`, etc. |
+| In-Engine Patent Resolution | `blast_app_util.hpp`, `blast_app_util.cpp` | Memory-maps `<db>.patidx` (CDRPAT01) and resolves patent publication numbers directly inside C++ |
+| Traceback & Engine Hook | `blast_engine.c`, `blast_traceback.c`, `blast_seqalign.cpp` | Intercepts hits for simultaneous multi-CDR query evaluation and compact tabular emission |
+
 #### Application Workflow (fresh build from scratch)
 
 ```bash
@@ -140,18 +151,21 @@ patch -p0 < ncbi_blast_2.17.0_patch
 # 3. Apply filter patch (min/max identity/coverage filters)
 patch -p0 < ncbi_blast_2.17.0_filter_patch
 
-# 4. Configure
+# 4. Apply CDR search patch (antibody CDR engine & .patidx resolution)
+patch -p0 < ncbi_blast_2.17.0_cdr_patch
+
+# 5. Configure
 cd ncbi-blast-2.17.0+-src/c++
 ./configure --with-mt --without-debug --without-gui --without-vdb \
     --with-projects=projects.txt \
     CC=/usr/bin/gcc CXX=/usr/bin/g++
 
-# 5. Build
+# 6. Build
 cd ReleaseMT/build
 make -j4 all_r
 ```
 
-> **Note:** The two-patch design is intentional. Patch 1 and Patch 2 can be independently versioned, reviewed, or reverted. To apply **only** base functionality (no filters), stop after step 2.
+> **Note:** The modular patch design is intentional. All three patches can be applied in sequence via `./build_patched_blast.sh`. To omit CDR functionality or filter parameters, use `--no-cdr` or `--no-patch2`.
 
 ---
 
@@ -368,3 +382,26 @@ Comprehensive filter testing against the WIPO patent sequence database (~50M nuc
 | **Window (min+max)** | ✅ | — | — | — | ✅ | — | — | — | — |
 
 **Total: 33 tests, 0 failures. All runtime <10 seconds per query on 50M-sequence databases.**
+
+---
+
+## 5. Antibody CDR Search & ClickHouse Ingestion (2026-04)
+
+### A. CDR Search Engine Overview
+With `ncbi_blast_2.17.0_cdr_patch` applied, `blastp` and `blastn` support simultaneous antibody searching:
+- **Multi-query matching**: Searches up to 16 CDR queries (e.g. CDR1, CDR2, CDR3) plus an optional full framework/variable chain sequence in a single pass.
+- **Distance constraints**: Verifies physical distance between aligned CDRs according to antibody structural templates (`-cdr_dist12_min/max`, `-cdr_dist23_min/max`).
+- **Memory-mapped Patent Resolution**: Zero-copy resolution of patent doc_ids via `<db>.patidx` (`CDRPAT01`), emitting clean publication identifiers directly in the output stream.
+
+### B. Output Format & ClickHouse Ingestion
+The `-cdr_outfmt compact` flag emits a 32-column tab-separated stream designed for direct piping into ClickHouse:
+
+```bash
+blastp -query test_data/test_hcdrs.fa -db /data/wipo_prot -cdr_mode -cdr_outfmt compact | \
+  clickhouse-client --query "INSERT INTO wipo.search_hits FORMAT TabSeparated"
+```
+
+For schema definitions, bitmask specifications, and analytical query examples, refer to:
+- [`clickhouse/init.sql`](clickhouse/init.sql)
+- [`clickhouse/clickhouse_storage_spec.md`](clickhouse/clickhouse_storage_spec.md)
+
