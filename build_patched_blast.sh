@@ -2,7 +2,7 @@
 # =============================================================================
 # build_patched_blast.sh
 #
-# Downloads NCBI BLAST+ 2.17.0 source, applies two custom patches, and
+# Downloads NCBI BLAST+ 2.17.0 source, applies three custom patches, and
 # compiles the BLAST suite (blastn, blastp, blastx, tblastn, tblastx,
 # makeblastdb, blastdbcmd).
 #
@@ -13,12 +13,14 @@
 #   --dest DIR       Directory to unpack and build in  (default: ./blast-build)
 #   --jobs N         Parallel make jobs                (default: 4)
 #   --skip-download  Reuse existing tarball if present
-#   --no-patch2      Apply only the base patch (skip filter params patch)
+#   --no-patch2      Skip filter params patch (Patch 2)
+#   --no-cdr         Skip antibody CDR search patch (Patch 3)
 #   --help           Show this help
 #
 # Required files (expected alongside this script):
 #   ncbi_blast_2.17.0_patch         Base patch (progress, subject length, midline)
 #   ncbi_blast_2.17.0_filter_patch  Filter patch (min/max identity/coverage params)
+#   ncbi_blast_2.17.0_cdr_patch     CDR patch (antibody search, .patidx, compact output)
 #
 # Requirements:
 #   gcc, g++, make, wget or curl, patch
@@ -33,6 +35,7 @@ DEST_DIR="./blast-build"
 JOBS=4
 SKIP_DOWNLOAD=0
 NO_PATCH2=0
+NO_PATCH3=0
 
 SOURCE_VERSION="2.17.0+"
 SOURCE_TARBALL="ncbi-blast-${SOURCE_VERSION}-src.tar.gz"
@@ -41,6 +44,7 @@ SOURCE_DIR="ncbi-blast-${SOURCE_VERSION}-src"
 
 PATCH1="ncbi_blast_2.17.0_patch"
 PATCH2="ncbi_blast_2.17.0_filter_patch"
+PATCH3="ncbi_blast_2.17.0_cdr_patch"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Colours
@@ -72,6 +76,7 @@ while [[ $# -gt 0 ]]; do
     --jobs)          JOBS="$2";     shift 2 ;;
     --skip-download) SKIP_DOWNLOAD=1; shift ;;
     --no-patch2)     NO_PATCH2=1;   shift ;;
+    --no-cdr|--no-patch3) NO_PATCH3=1; shift ;;
     --help|-h)       usage ;;
     *) log_error "Unknown option: $1"; usage ;;
   esac
@@ -123,6 +128,14 @@ if [[ $NO_PATCH2 -eq 0 ]]; then
     exit 1
   fi
   log_ok "Patch file found: $PATCH2"
+fi
+
+if [[ $NO_PATCH3 -eq 0 ]]; then
+  if [[ ! -f "$SCRIPT_DIR/$PATCH3" ]]; then
+    log_error "Patch file not found: $SCRIPT_DIR/$PATCH3"
+    exit 1
+  fi
+  log_ok "Patch file found: $PATCH3"
 fi
 
 # Create destination directory
@@ -191,6 +204,18 @@ if [[ $NO_PATCH2 -eq 0 ]]; then
   fi
 else
   log_warn "--no-patch2 set, skipping filter parameter patch."
+fi
+
+if [[ $NO_PATCH3 -eq 0 ]]; then
+  log_info "Applying patch 3: $PATCH3 (antibody and CDR search engine, .patidx resolution)..."
+  if patch -p0 < "$SCRIPT_DIR/$PATCH3"; then
+    log_ok "Patch 3 applied successfully."
+  else
+    log_error "Patch 3 failed. Check for conflicts."
+    exit 1
+  fi
+else
+  log_warn "--no-cdr set, skipping CDR search patch."
 fi
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -266,6 +291,7 @@ if [[ $ALL_OK -eq 1 ]]; then
   echo "  Quick test:"
   echo "    $BIN_DIR/blastn -help | grep -A3 'Filtering options'"
   echo "    $BIN_DIR/blastp -help | grep -A3 'Filtering options'"
+  echo "    $BIN_DIR/blastp -help | grep -A3 'cdr_mode'"
   echo ""
 else
   log_error "Some binaries are missing. Check $DEST_DIR/make.log for errors."
