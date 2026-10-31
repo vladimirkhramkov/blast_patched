@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS wipo.searches (
     search_id UUID,
     name String,
     search_type LowCardinality(String) DEFAULT 'antibody',  -- 'standard' or 'antibody'
-    chain_type LowCardinality(String),                      -- 'H', 'L', or 'NT'
+    chain_type LowCardinality(String),                      -- 'H', 'L', 'H+L', or 'NT'
     query_chain String,
     cdr1_seq String DEFAULT '',
     cdr2_seq String DEFAULT '',
@@ -26,7 +26,12 @@ CREATE TABLE IF NOT EXISTS wipo.searches (
     unique_patents UInt32 DEFAULT 0,
     error_message String DEFAULT '',
     db_type LowCardinality(String) DEFAULT 'prot',          -- 'prot' or 'nucl'
-    search_mode LowCardinality(String) DEFAULT 'cdr_prot'   -- 'blastp', 'blastn', 'cdr_prot', etc.
+    search_mode LowCardinality(String) DEFAULT 'cdr_prot',  -- 'blastp', 'blastn', 'cdr_prot', etc.
+    evalue Float64 DEFAULT 1000000.0,
+    max_target_seqs UInt32 DEFAULT 100000,
+    min_query_cov Float32 DEFAULT 75.0,
+    min_subj_len Int32 DEFAULT -1,
+    max_subj_len Int32 DEFAULT -1
 ) ENGINE = ReplacingMergeTree()
 PRIMARY KEY (search_id);
 
@@ -80,12 +85,13 @@ CREATE TABLE IF NOT EXISTS wipo.search_hits (
 ) ENGINE = MergeTree()
 ORDER BY (search_id, seq_venn_mask, chain_pct_ident, subj_len, doc_id);
 
--- 3. Table for Patent Metadata (Applicants, Title, Publication Year)
+-- 3. Table for Patent Metadata (Applicants, Title, Publication Year & Date)
 CREATE TABLE IF NOT EXISTS wipo.patents_meta (
     pat_idx UInt32,
     doc_id LowCardinality(String),
     pub_year UInt16,
     applicant LowCardinality(String),
-    title String
+    title String,
+    pub_date Nullable(Date)
 ) ENGINE = ReplacingMergeTree()
 PRIMARY KEY (doc_id);

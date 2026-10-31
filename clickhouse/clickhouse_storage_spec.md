@@ -39,42 +39,42 @@ Rather than storing heavyweight pairwise alignments or verbose text files, the e
 
 ## 2. Compact Output Format Specification (32 Columns)
 
-When `-cdr_outfmt compact` is active, the patched BLAST executable outputs tab-delimited records with 32 fields:
+When `-cdr_outfmt compact` is active, the patched BLAST executable outputs tab-delimited records with 32 fields (Matching the header `#chain_type	oid	subj_len	...	chain_end`):
 
 | Col # | Field Name | Type | Description |
 |:---:|---|---|---|
-| 1 | `oid` | UInt32 | Internal BLAST sequence ordinal ID in database |
-| 2 | `subj_len` | UInt32 | Subject sequence length (amino acids or nucleotides) |
-| 3 | `is_patent` | UInt8 | `1` if sequence originates from patent literature, `0` otherwise |
-| 4 | `pat_idx` | UInt32 | Patent index within `.patidx` string pool |
-| 5 | `doc_id` | String | Patent publication number (e.g. `WO2024123456`) |
-| 6 | `seq_id_no` | UInt32 | Sequence identifier in patent (`<212> SEQ ID NO`) |
-| 7 | `seq_venn_mask` | UInt8 | Hit-level Venn bitmask (1=CDR1, 2=CDR2, 4=CDR3, 8=Chain) |
-| 8 | `seq_exact_mask`| UInt8 | Exact 0-mismatch match bitmask |
-| 9 | `pat_venn_mask` | UInt8 | Patent-level cumulative Venn bitmask |
-| 10 | `pat_exact_mask`| UInt8 | Patent-level cumulative exact bitmask |
-| 11 | `cdr_tier` | UInt8 | CDR match tier (1: CDR1+2+3, 2: CDR3+1, 3: CDR3, 4: Other) |
-| 12 | `pat_tier` | UInt8 | Patent-level best tier |
-| 13 | `pat_match_type`| UInt8 | Canonical match type category |
-| 14 | `seq_combo_score`| UInt32| Sequence combination score |
-| 15 | `pat_combo_score`| UInt32| Cumulative patent combination score |
-| 16 | `total_cdr_mm` | Int16 | Total mismatches across all aligned CDRs |
-| 17 | `cdr1_start` | UInt32 | 1-based start coordinate of CDR1 on subject (0 if unaligned) |
-| 18 | `cdr1_end` | UInt32 | 1-based end coordinate of CDR1 on subject (0 if unaligned) |
-| 19 | `cdr1_mm` | Int8 | Number of mismatches in CDR1 (-1 if unaligned) |
-| 20 | `cdr2_start` | UInt32 | 1-based start coordinate of CDR2 on subject (0 if unaligned) |
-| 21 | `cdr2_end` | UInt32 | 1-based end coordinate of CDR2 on subject (0 if unaligned) |
-| 22 | `cdr2_mm` | Int8 | Number of mismatches in CDR2 (-1 if unaligned) |
-| 23 | `cdr3_start` | UInt32 | 1-based start coordinate of CDR3 on subject (0 if unaligned) |
-| 24 | `cdr3_end` | UInt32 | 1-based end coordinate of CDR3 on subject (0 if unaligned) |
-| 25 | `cdr3_mm` | Int8 | Number of mismatches in CDR3 (-1 if unaligned) |
-| 26 | `dist_12` | Int16 | Framework amino acid distance between CDR1 end and CDR2 start |
-| 27 | `dist_23` | Int16 | Framework amino acid distance between CDR2 end and CDR3 start |
-| 28 | `chain_pct_ident`| Float32| Alignment % identity for chain / standard BLAST hit |
-| 29 | `chain_mm` | Int16 | Total mismatch count in chain alignment |
-| 30 | `chain_start` | UInt32 | 1-based start coordinate on subject sequence |
-| 31 | `chain_end` | UInt32 | 1-based end coordinate on subject sequence |
-| 32 | `chain_type` | String | Chain classification: `'H'` (Heavy), `'L'` (Light), `'NT'` |
+| 1 | `chain_type` | String | Chain classification: `'H'` (Heavy), `'L'` (Light), `'NT'`, `'C'` |
+| 2 | `oid` | UInt32 | Internal BLAST sequence ordinal ID in database |
+| 3 | `subj_len` | UInt32 | Subject sequence length (amino acids or nucleotides) |
+| 4 | `is_patent` | UInt8 | `1` if sequence originates from patent literature, `0` otherwise |
+| 5 | `pat_idx` | UInt32 | Patent index within `.patidx` string pool |
+| 6 | `doc_id` | String | Patent publication number (e.g. `WO2024123456`) |
+| 7 | `seq_id_no` | UInt32 | Sequence identifier in patent (`<212> SEQ ID NO`) |
+| 8 | `seq_venn_mask` | UInt8 | Hit-level Venn bitmask (1=CDR1, 2=CDR2, 4=CDR3, 8=Chain) |
+| 9 | `seq_exact_mask`| UInt8 | Exact 0-mismatch match bitmask |
+| 10 | `pat_venn_mask` | UInt8 | Patent-level cumulative Venn bitmask |
+| 11 | `pat_exact_mask`| UInt8 | Patent-level cumulative exact bitmask |
+| 12 | `cdr_tier` | UInt8 | CDR match tier (1: CDR1+2+3, 2: CDR3+1, 3: CDR3, 4: Other) |
+| 13 | `pat_tier` | UInt8 | Patent-level best tier |
+| 14 | `pat_match_type`| UInt8 | Canonical match type category |
+| 15 | `seq_combo_score`| UInt32| Sequence combination score |
+| 16 | `pat_combo_score`| UInt32| Cumulative patent combination score |
+| 17 | `total_cdr_mm` | Int16 | Total mismatches across all aligned CDRs |
+| 18 | `cdr1_start` | UInt32 | 1-based start coordinate of CDR1 on subject (0 if unaligned) |
+| 19 | `cdr1_end` | UInt32 | 1-based end coordinate of CDR1 on subject (0 if unaligned) |
+| 20 | `cdr1_mm` | Int8 | Number of mismatches in CDR1 (-1 if unaligned) |
+| 21 | `cdr2_start` | UInt32 | 1-based start coordinate of CDR2 on subject (0 if unaligned) |
+| 22 | `cdr2_end` | UInt32 | 1-based end coordinate of CDR2 on subject (0 if unaligned) |
+| 23 | `cdr2_mm` | Int8 | Number of mismatches in CDR2 (-1 if unaligned) |
+| 24 | `cdr3_start` | UInt32 | 1-based start coordinate of CDR3 on subject (0 if unaligned) |
+| 25 | `cdr3_end` | UInt32 | 1-based end coordinate of CDR3 on subject (0 if unaligned) |
+| 26 | `cdr3_mm` | Int8 | Number of mismatches in CDR3 (-1 if unaligned) |
+| 27 | `dist_12` | Int16 | Framework amino acid distance between CDR1 end and CDR2 start |
+| 28 | `dist_23` | Int16 | Framework amino acid distance between CDR2 end and CDR3 start |
+| 29 | `chain_pct_ident`| Float32| Alignment % identity for chain / standard BLAST hit |
+| 30 | `chain_mm` | Int16 | Total mismatch count in chain alignment |
+| 31 | `chain_start` | UInt32 | 1-based start coordinate on subject sequence |
+| 32 | `chain_end` | UInt32 | 1-based end coordinate on subject sequence |
 
 When ingesting standard BLAST searches, 6 additional canonical alignment metrics are populated:
 `qstart`, `qend`, `evalue`, `bitscore`, `qcov` (% query coverage), `scov` (% subject coverage).

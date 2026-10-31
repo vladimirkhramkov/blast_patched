@@ -136,14 +136,12 @@ Filtering cutoffs are applied after traceback is complete, eliminating low-ident
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `-cdr_mode` | Flag | Off | Activates multi-query CDR and antibody alignment engine |
-| `-cdr_outfmt` | String / Int | `blast` | Output format: `blast` (0), `full` (1), `tsv` (2), `json` (3), `compact` (4) |
-| `-chain_min_ident` | Real 70..100 | 75.0 | Minimum % identity required for the full framework/chain query |
-| `-max_mismatches` | Int List | 0 | Comma-separated max mismatches per CDR slot (e.g. `1,1,2`) |
-| `-cdr_dist12_min` | Integer | 15 | Minimum amino acid distance between CDR1 end and CDR2 start |
-| `-cdr_dist12_max` | Integer | 45 | Maximum amino acid distance between CDR1 end and CDR2 start |
-| `-cdr_dist23_min` | Integer | 20 | Minimum amino acid distance between CDR2 end and CDR3 start |
-| `-cdr_dist23_max` | Integer | 50 | Maximum amino acid distance between CDR2 end and CDR3 start |
-| `-cdr_any_order` | Flag | Off | Allow CDRs to appear in arbitrary order along the subject sequence |
+| `-cdr_outfmt` | String / Int | `full` | Output format: `blast` (0), `full` (1), `tsv` (2), `json` (3), `compact` / `clickhouse` (4) |
+| `-cdr_chain_min_ident` | Real 0..100 | 70.0 | Minimum % identity required for the optional 4th full Chain / V-Region query |
+| `-cdr_max_mismatches` | String | `2,2,2` | Comma-separated max mismatches per CDR slot (e.g. `1,2,1` or single integer `2`) |
+| `-cdr_dist` | String | `10:25,30:50` | Allowed inter-CDR framework distances in aa/nt (`10:25,30:50` for protein; `30:75,90:150` for nucleotide) |
+| `-cdr_any_order` | Flag | Off | Allow CDR1, CDR2, CDR3 to occur in arbitrary order along the subject sequence |
+| `-append` (`makeblastdb`) | Flag | Off | Append new sequences to an existing BLAST database in-place |
 
 ---
 
@@ -195,9 +193,10 @@ See [`patidx/patidx.h`](patidx/patidx.h) and [`patidx/convert_nucl_patidx.cpp`](
 The output of `-cdr_outfmt compact` streams directly into ClickHouse.
 
 ```bash
-# Direct batch ingestion into ClickHouse
-cat results_cdr_compact.tsv | clickhouse-client \
-  --query "INSERT INTO wipo.search_hits (oid, subj_len, is_patent, pat_idx, doc_id, seq_id_no, seq_venn_mask, seq_exact_mask, pat_venn_mask, pat_exact_mask, cdr_tier, pat_tier, pat_match_type, seq_combo_score, pat_combo_score, total_cdr_mm, cdr1_start, cdr1_end, cdr1_mm, cdr2_start, cdr2_end, cdr2_mm, cdr3_start, cdr3_end, cdr3_mm, dist_12, dist_23, chain_pct_ident, chain_mm, chain_start, chain_end, chain_type) FORMAT TabSeparated"
+# Direct batch ingestion into ClickHouse (prepending search_id UUID and skipping '#' header lines)
+SEARCH_ID="6b4766a3-fc88-4200-9833-f5e51ca2b259"
+grep -v '^#' results_cdr_compact.tsv | awk -v sid="$SEARCH_ID" 'BEGIN{OFS="\t"} {print sid, $0}' | \
+  clickhouse-client --query "INSERT INTO wipo.search_hits (search_id, chain_type, oid, subj_len, is_patent, pat_idx, doc_id, seq_id_no, seq_venn_mask, seq_exact_mask, pat_venn_mask, pat_exact_mask, cdr_tier, pat_tier, pat_match_type, seq_combo_score, pat_combo_score, total_cdr_mm, cdr1_start, cdr1_end, cdr1_mm, cdr2_start, cdr2_end, cdr2_mm, cdr3_start, cdr3_end, cdr3_mm, dist_12, dist_23, chain_pct_ident, chain_mm, chain_start, chain_end) FORMAT TabSeparated"
 ```
 
 For table definitions, bitmask specifications, and analytical query recipes, see:

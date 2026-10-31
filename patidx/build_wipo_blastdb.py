@@ -14,6 +14,7 @@ Pipeline:
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import struct
@@ -26,14 +27,14 @@ import zipfile
 from array import array
 from pathlib import Path
 
-WIPO_ROOT = Path("/Users/vladimir/Projects/AirFlow/data/wipo")
-OUT_DIR = Path("/Users/vladimir/Projects/BLAST+CDR/wipo_2026_db")
+WIPO_ROOT = Path(os.environ.get("WIPO_ROOT", "./data/wipo"))
+OUT_DIR = Path(os.environ.get("WIPO_OUT_DIR", "./wipo_2026_db"))
 STATE_DIR = OUT_DIR / "index_state"
 SHARDS_DIR = STATE_DIR / "shards"
 FASTA_PATH = OUT_DIR / "wipo_2026_prot.fa"
 DB_PREFIX = OUT_DIR / "wipo_2026_prot"
 PATIDX_PATH = OUT_DIR / "wipo_2026_prot.patidx"
-MAKEBLASTDB = Path("/Users/vladimir/Projects/BLAST+CDR/ncbi-blast-2.17.0+-src/c++/build_min/bin/makeblastdb")
+MAKEBLASTDB = Path(os.environ.get("MAKEBLASTDB_BIN", "makeblastdb"))
 
 CLEAN_WS = re.compile(r"\s+")
 VALID_AA = re.compile(r"[^ACDEFGHIKLMNPQRSTVWYBZXUOJ*]")
@@ -448,7 +449,27 @@ def build_patidx_file(patents: list[dict], num_oids: int, total_occ: int):
 
 
 def main():
+    global WIPO_ROOT, OUT_DIR, STATE_DIR, SHARDS_DIR, FASTA_PATH, DB_PREFIX, PATIDX_PATH, MAKEBLASTDB
+
     parser = argparse.ArgumentParser(description="Incremental WIPO BLAST DB + .patidx builder")
+    parser.add_argument(
+        "--wipo-root",
+        type=Path,
+        default=WIPO_ROOT,
+        help="Root directory containing WIPO ST.26/ST.25 .zip archives (or set WIPO_ROOT env var)",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=OUT_DIR,
+        help="Output directory for BLAST DB and .patidx files (or set WIPO_OUT_DIR env var)",
+    )
+    parser.add_argument(
+        "--makeblastdb-bin",
+        type=Path,
+        default=MAKEBLASTDB,
+        help="Path to patched makeblastdb binary (or set MAKEBLASTDB_BIN env var)",
+    )
     parser.add_argument(
         "--years",
         type=str,
@@ -472,6 +493,15 @@ def main():
         help="Rebuild wipo_2026_prot.patidx and clean patents.jsonl without re-parsing zips",
     )
     args = parser.parse_args()
+
+    WIPO_ROOT = args.wipo_root
+    OUT_DIR = args.out_dir
+    STATE_DIR = OUT_DIR / "index_state"
+    SHARDS_DIR = STATE_DIR / "shards"
+    FASTA_PATH = OUT_DIR / "wipo_2026_prot.fa"
+    DB_PREFIX = OUT_DIR / "wipo_2026_prot"
+    PATIDX_PATH = OUT_DIR / "wipo_2026_prot.patidx"
+    MAKEBLASTDB = args.makeblastdb_bin
 
     if args.reset:
         print("Resetting index state and FASTA...")

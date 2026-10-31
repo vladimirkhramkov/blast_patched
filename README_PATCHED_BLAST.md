@@ -135,7 +135,7 @@ All source code modifications are captured as standard `diff -u` patch files sto
 | Component | Files Modified | Description |
 |---|---|---|
 | Core CDR Algorithm | `c++/include/algo/blast/core/cdr_search.h`, `cdr_search.c` | Implements uniform IUPAC patent score matrix, multi-CDR combination tracking, and distance chaining |
-| Options & CLI Args | `blast_options.h`, `blast_args.hpp`, `blastp_args.cpp`, `blastn_args.cpp` | Registers `-cdr_mode`, `-cdr_outfmt`, `-chain_min_ident`, `-cdr_dist12_min/max`, etc. |
+| Options & CLI Args | `blast_options.h`, `blast_args.hpp`, `blastp_args.cpp`, `blastn_args.cpp` | Registers `-cdr_mode`, `-cdr_outfmt`, `-cdr_chain_min_ident`, `-cdr_max_mismatches`, `-cdr_dist`, `-cdr_any_order` |
 | In-Engine Patent Resolution | `blast_app_util.hpp`, `blast_app_util.cpp` | Memory-maps `<db>.patidx` (CDRPAT01) and resolves patent publication numbers directly inside C++ |
 | Traceback & Engine Hook | `blast_engine.c`, `blast_traceback.c`, `blast_seqalign.cpp` | Intercepts hits for simultaneous multi-CDR query evaluation and compact tabular emission |
 
@@ -390,15 +390,17 @@ Comprehensive filter testing against the WIPO patent sequence database (~50M nuc
 ### A. CDR Search Engine Overview
 With `ncbi_blast_2.17.0_cdr_patch` applied, `blastp` and `blastn` support simultaneous antibody searching:
 - **Multi-query matching**: Searches up to 16 CDR queries (e.g. CDR1, CDR2, CDR3) plus an optional full framework/variable chain sequence in a single pass.
-- **Distance constraints**: Verifies physical distance between aligned CDRs according to antibody structural templates (`-cdr_dist12_min/max`, `-cdr_dist23_min/max`).
+- **Distance constraints**: Verifies physical distance between aligned CDRs according to antibody structural templates (`-cdr_dist "10:25,30:50"`).
 - **Memory-mapped Patent Resolution**: Zero-copy resolution of patent doc_ids via `<db>.patidx` (`CDRPAT01`), emitting clean publication identifiers directly in the output stream.
 
 ### B. Output Format & ClickHouse Ingestion
-The `-cdr_outfmt compact` flag emits a 32-column tab-separated stream designed for direct piping into ClickHouse:
+The `-cdr_outfmt compact` flag emits a 32-column tab-separated stream (`chain_type` through `chain_end`) designed for direct piping into ClickHouse:
 
 ```bash
+SEARCH_ID="6b4766a3-fc88-4200-9833-f5e51ca2b259"
 blastp -query test_data/test_hcdrs.fa -db /data/wipo_prot -cdr_mode -cdr_outfmt compact | \
-  clickhouse-client --query "INSERT INTO wipo.search_hits FORMAT TabSeparated"
+  grep -v '^#' | awk -v sid="$SEARCH_ID" 'BEGIN{OFS="\t"} {print sid, $0}' | \
+  clickhouse-client --query "INSERT INTO wipo.search_hits (search_id, chain_type, oid, subj_len, is_patent, pat_idx, doc_id, seq_id_no, seq_venn_mask, seq_exact_mask, pat_venn_mask, pat_exact_mask, cdr_tier, pat_tier, pat_match_type, seq_combo_score, pat_combo_score, total_cdr_mm, cdr1_start, cdr1_end, cdr1_mm, cdr2_start, cdr2_end, cdr2_mm, cdr3_start, cdr3_end, cdr3_mm, dist_12, dist_23, chain_pct_ident, chain_mm, chain_start, chain_end) FORMAT TabSeparated"
 ```
 
 For schema definitions, bitmask specifications, and analytical query examples, refer to:
