@@ -154,7 +154,11 @@ CREATE TABLE IF NOT EXISTS wipo.search_hits (
     evalue Float64 DEFAULT 0.0,
     bitscore Float32 DEFAULT 0.0,
     qcov Float32 DEFAULT 0.0,
-    scov Float32 DEFAULT 0.0
+    scov Float32 DEFAULT 0.0,
+    PROJECTION p_by_doc (
+        SELECT *
+        ORDER BY search_id, doc_id, oid
+    )
 ) ENGINE = MergeTree()
 ORDER BY (search_id, seq_venn_mask, chain_pct_ident, subj_len, doc_id);
 ```
